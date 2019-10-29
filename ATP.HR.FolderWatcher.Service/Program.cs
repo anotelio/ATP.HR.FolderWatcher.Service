@@ -1,6 +1,5 @@
 ﻿using System;
 using Topshelf;
-using Topshelf.FileSystemWatcher;
 
 namespace ATP.HR.FolderWatcher.Service
 {
@@ -8,13 +7,13 @@ namespace ATP.HR.FolderWatcher.Service
     {
         static void Main(string[] args)
         {
-            try
-            {
+            //try
+            //{
                 var exitCode = HostFactory.Run(r =>
                 {
                     r.Service<FolderWatcher>(s =>
                     {
-                        s.ConstructUsing(f => new FolderWatcher("D:\\Temp\\hr_data", "hr_data"));
+                        s.ConstructUsing(f => new FolderWatcher("D:\\Temp\\hr_data"));
                         s.WhenStarted(f => f.Start());
                         s.WhenStopped(f => f.Stop());
                     });
@@ -29,12 +28,12 @@ namespace ATP.HR.FolderWatcher.Service
 
                 int exitCodeValue = (int)Convert.ChangeType(exitCode, exitCode.GetTypeCode());
                 Environment.ExitCode = exitCodeValue;
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine(e.Message);
-                Console.ReadKey();
-            }
+            //}
+            //catch (Exception e)
+            //{
+            //    Console.WriteLine(e.Message);
+            //    Console.ReadKey();
+            //}
         }
     }
 }

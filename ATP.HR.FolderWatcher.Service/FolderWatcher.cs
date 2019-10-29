@@ -1,41 +1,82 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.IO;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Timers;
-using Topshelf.FileSystemWatcher;
+using System.Threading;
 
 namespace ATP.HR.FolderWatcher.Service
 {
     public class FolderWatcher
     {
-        private readonly Timer timer;
-        
-        private readonly FileSystemEventArgs fileSystemFolderChangedArgs;
+        private FileSystemWatcher watcher;
+        private readonly string folderPath;
 
-        public FolderWatcher(string folderPath, string folderName)
+        public FolderWatcher(string folderPath)
         {
-            this.fileSystemFolderChangedArgs = new FileSystemEventArgs(WatcherChangeTypes.Changed, folderPath, folderName);
-            FileSystemEventFactory.CreateNormalFileSystemEvent(fileSystemFolderChangedArgs);
-
-            timer = new Timer(1000) { AutoReset = true };
-            timer.Elapsed += TimerElapsed;
+            this.folderPath = folderPath;
         }
 
-        private void TimerElapsed(object sender, ElapsedEventArgs e)
+        private void Watch(string folderPath)
         {
+            watcher = new FileSystemWatcher();
+            this.watcher.Path = folderPath;
+            this.watcher.NotifyFilter = NotifyFilters.LastWrite;
+            this.watcher.Filter = "*.csv";
+            this.watcher.Changed += OnChanged;
+        }
+
+        private void OnChanged(object source, FileSystemEventArgs e)
+        {
+            try
+            {
+                this.watcher.EnableRaisingEvents = false;
+
+                FileInfo file = new FileInfo("D:\\Temp\\hr_data\\url_nichtstempler.csv");
+
+                bool spinUntil = SpinWait.SpinUntil(() => {
+                    bool isMoved = false;
+
+                    try
+                    {
+                        file.Delete();
+                        isMoved = true;
+                    }
+                    catch
+                    {
+                    }
+
+                    return isMoved;
+                }, TimeSpan.FromSeconds(5));
+
+                
+
+                Console.WriteLine(spinUntil ? "File Moved!" : "Failed and canceled.");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine("File Not Moved! Error:" + ex.Message);
+            }
+            finally
+            {
+                this.watcher.EnableRaisingEvents = true;
+            }
+        }
+
+        private void Dispose()
+        {
+            // avoiding resource leak
+            this.watcher.Changed -= OnChanged;
+            this.watcher.Dispose();
         }
 
         public void Start()
         {
-            timer.Start();
+            this.Watch(this.folderPath);
+            this.watcher.EnableRaisingEvents = true;
         }
 
         public void Stop()
         {
-            timer.Stop();
+            watcher.EnableRaisingEvents = false;
+            this.Dispose();
         }
     }
 }
