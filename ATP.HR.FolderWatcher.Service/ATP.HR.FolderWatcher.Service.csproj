@@ -82,6 +82,7 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="FileSystemManager.cs" />
     <Compile Include="FolderWatcher.cs" />
     <Compile Include="Heartbeat.cs" />
     <Compile Include="Program.cs" />

@@ -13,7 +13,7 @@ namespace ATP.HR.FolderWatcher.Service
                 {
                     r.Service<FolderWatcher>(s =>
                     {
-                        s.ConstructUsing(f => new FolderWatcher("D:\\Temp\\hr_data"));
+                        s.ConstructUsing(f => new FolderWatcher("D:\\Temp\\received_data", "D:\\Temp\\hr_data"));
                         s.WhenStarted(f => f.Start());
                         s.WhenStopped(f => f.Stop());
                     });
