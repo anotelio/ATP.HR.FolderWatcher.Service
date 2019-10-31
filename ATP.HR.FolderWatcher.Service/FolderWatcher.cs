@@ -119,7 +119,24 @@ namespace ATP.HR.FolderWatcher.Service
                     {
                         if (fileInfo.Extension == ".zip" && filesToMoveNamesList.ToArray().Contains(fileInfo.Name))
                         {
-                            ZipFile.ExtractToDirectory(fileInfo.FullName, fileInfo.DirectoryName);
+                            if (fileInfo.Name == FileSystemManager.receivedFileIgnoredName01)
+                            {
+                                List<string> currentZipFilesList = ZipFile.OpenRead(fileInfo.FullName)
+                                    .Entries
+                                    .Select(cz => cz.FullName)
+                                    .ToList();
+
+                                IEnumerable<string> compareList;
+
+                                compareList = FileSystemManager.filesToProcessedList.Except(currentZipFilesList);
+
+                                foreach (string value in compareList)
+                                {
+                                    Console.WriteLine(value);
+                                }
+
+                                ZipFile.ExtractToDirectory(fileInfo.FullName, fileInfo.DirectoryName);
+                            }
                         }
                     }
                 }
