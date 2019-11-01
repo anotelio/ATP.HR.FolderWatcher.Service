@@ -12,7 +12,7 @@ namespace ATP.HR.FolderWatcher.Service
     {
         private FileSystemWatcher watcher;
 
-        //public static Dictionary<string, string> receivedFilesAll;
+        private List<string> filesToProcessList;
 
         private readonly string receivedDataPath;
 
@@ -25,6 +25,8 @@ namespace ATP.HR.FolderWatcher.Service
         private DirectoryInfo watchDirectoryInfo;
 
         private DirectoryInfo processDirectoryInfo;
+
+        private string fileToProcessedName01;
 
         public FolderWatcher(string receivedDataPath, string processedDataPath)
         {
@@ -41,7 +43,9 @@ namespace ATP.HR.FolderWatcher.Service
             filesToMoveNamesList = new List<string>();
             filesToNotDeleteNamesList = new List<string>();
 
-            this.filesToMoveNamesList.Add(FileSystemManager.receivedFileIgnoredName01);
+            this.fileToProcessedName01 = FileSystemManager.receivedFileIgnoredName01;
+
+            this.filesToMoveNamesList.Add(fileToProcessedName01);
             this.filesToNotDeleteNamesList.Add(FileSystemManager.folderIgnoredName01);
 
             FileSystemManager.ClearFolderFromUselessFiles(processDirectoryInfo, filesToNotDeleteNamesList.ToArray());
@@ -59,90 +63,116 @@ namespace ATP.HR.FolderWatcher.Service
             {
                 this.watcher.EnableRaisingEvents = false;
 
+                this.filesToProcessList = new List<string>();
+
                 bool isMoved = false;
+                bool isExtracted = false;
+                bool isDone = false;
+                string dateTimeNow;
+
+                dateTimeNow = DateTime.Now.ToString("MM.dd.yyyy_HH-mm-ss.fff");
 
                 bool spinUntil = SpinWait.SpinUntil(() =>
                 {
-                    bool isDone = false;
-                    
                     try
                     {
-                        if (filesToMoveNamesList.Contains(e.Name))
-                        {
-                            if (File.Exists(e.FullPath))
-                            {
-                                if (File.Exists(Path.Combine(processedDataPath, e.Name)))
-                                {
-                                    File.Delete(Path.Combine(processedDataPath, e.Name));
-                                }
+                        FileInfo[] receiveCurrentFilesInfo = watchDirectoryInfo.GetFiles();
+                        string receiveFilePath;
+                        string processFilePath;
 
-                                File.Move(e.FullPath, Path.Combine(processedDataPath, e.Name));
-                                isMoved = true;
-                            }
-                        }
-                        else
+                        Thread.Sleep(5); // 5ms
+
+                        foreach (FileInfo fileInfo in receiveCurrentFilesInfo)
                         {
-                            foreach (string item in filesToMoveNamesList)
+                            if (filesToMoveNamesList.ToArray().Contains(fileInfo.Name))
                             {
-                                string receiveFilePath = Path.Combine(receivedDataPath, item);
-                                string processFilePath = Path.Combine(processedDataPath, item);
+                                receiveFilePath = fileInfo.FullName;
+                                processFilePath = Path.Combine(processDirectoryInfo.FullName,
+                                    string.Concat(Path.GetFileNameWithoutExtension(receiveFilePath),
+                                        "_",
+                                        dateTimeNow,
+                                        Path.GetExtension(receiveFilePath)));
 
                                 if (File.Exists(receiveFilePath))
                                 {
-                                    if (File.Exists(processFilePath))
-                                    {
-                                        File.Delete(processFilePath);
-                                    }
-
                                     File.Move(receiveFilePath, processFilePath);
+
+                                    filesToProcessList.Add(Path.GetFileName(processFilePath));
+
                                     isMoved = true;
                                 }
                             }
                         }
 
-                        FileSystemManager.ClearFolderFromUselessFiles(watchDirectoryInfo, filesToMoveNamesList.ToArray());
-
                         isDone = true;
                     }
-                    catch
+                    catch (Exception rp)
                     {
+                        Console.WriteLine(rp);
                     }
 
                     return isDone;
                 }, TimeSpan.FromSeconds(5));
 
-                if (isMoved)
+                Console.WriteLine((spinUntil == true && isMoved == true) ? "File was Moved!" : "Failed and canceled.");
+
+                bool isDone2 = false;
+
+                bool spinUntil2 = SpinWait.SpinUntil(() =>
                 {
-                    FileSystemManager.ClearFolderFromUselessFiles(processDirectoryInfo, filesToMoveNamesList.Concat(filesToNotDeleteNamesList).ToArray());
-
-                    foreach (FileInfo fileInfo in processDirectoryInfo.GetFiles())
+                    try
                     {
-                        if (fileInfo.Extension == ".zip" && filesToMoveNamesList.ToArray().Contains(fileInfo.Name))
+                        if (isMoved)
                         {
-                            if (fileInfo.Name == FileSystemManager.receivedFileIgnoredName01)
+                            FileSystemManager.ClearFolderFromUselessFiles(processDirectoryInfo, filesToProcessList.Concat(filesToNotDeleteNamesList).ToArray());
+
+                            FileInfo[] processCurrentFilesInfo = processDirectoryInfo.GetFiles();
+
+                            foreach (FileInfo fileInfo in processCurrentFilesInfo)
                             {
-                                List<string> currentZipFilesList = ZipFile.OpenRead(fileInfo.FullName)
-                                    .Entries
-                                    .Select(cz => cz.FullName)
-                                    .ToList();
-
-                                IEnumerable<string> compareList;
-
-                                compareList = FileSystemManager.filesToProcessedList.Except(currentZipFilesList);
-
-                                foreach (string value in compareList)
+                                if (fileInfo.Extension == ".zip" && filesToProcessList.ToArray().Contains(fileInfo.Name))
                                 {
-                                    Console.WriteLine(value);
+                                    if (fileInfo.Name == string.Concat(fileToProcessedName01.Left(fileToProcessedName01.Length - 4), "_", dateTimeNow, ".zip"))
+                                    {
+                                        List<string> currentZipFilesList = ZipFile.OpenRead(fileInfo.FullName)
+                                            .Entries
+                                            .Select(cz => cz.FullName)
+                                            .ToList();
+
+                                        IEnumerable<string> missingFilesList;
+
+                                        missingFilesList = FileSystemManager.filesToProcessedList.Except(currentZipFilesList);
+
+                                        if (missingFilesList.Count() == 0 && currentZipFilesList.Count() == FileSystemManager.filesToProcessedList.Count())
+                                        {
+                                            ZipFile.ExtractToDirectory(fileInfo.FullName, fileInfo.DirectoryName);
+
+                                            isExtracted = true;
+                                        }
+                                        else
+                                        {
+                                            Console.WriteLine("Missing files:");
+                                            foreach (string value in missingFilesList)
+                                            {
+                                                Console.WriteLine(value);
+                                            }
+                                        }
+                                    }
                                 }
-
-                                ZipFile.ExtractToDirectory(fileInfo.FullName, fileInfo.DirectoryName);
                             }
+                            FileSystemManager.ClearFolderFromUselessFiles(watchDirectoryInfo, filesToMoveNamesList.ToArray());
                         }
-                    }
-                }
 
-                Console.WriteLine((spinUntil == true && isMoved == true) ? "File Moved!" : "Failed and canceled.");
-                
+                        isDone2 = true;
+                    }
+                    catch
+                    {
+                    }
+
+                    return isDone2;
+                }, TimeSpan.FromSeconds(5));
+
+                Console.WriteLine((spinUntil2 == true && isExtracted == true) ? "File was Extracted!" : "Failed and canceled.2");
             }
             catch (Exception ex)
             {
