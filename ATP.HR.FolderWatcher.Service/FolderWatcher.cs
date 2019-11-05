@@ -1,5 +1,4 @@
 ﻿using System;
-using System.Collections;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -51,10 +50,14 @@ namespace ATP.HR.FolderWatcher.Service
             FileSystemManager.ClearFolderFromUselessFiles(processDirectoryInfo, filesToNotDeleteNamesList.ToArray());
             FileSystemManager.ClearFolderFromUselessFiles(watchDirectoryInfo);
 
-            this.watcher = new FileSystemWatcher();
-            this.watcher.Path = receivedDataPath;
-            this.watcher.NotifyFilter = NotifyFilters.LastWrite;
-            this.watcher.Changed += OnChanged;
+            this.watcher = new FileSystemWatcher()
+            {
+                Path = receivedDataPath,
+                NotifyFilter = NotifyFilters.LastWrite,
+                //Filter = "*.zip"
+            };
+
+            this.watcher.Changed += new FileSystemEventHandler(OnChanged);
         }
 
         private void OnChanged(object source, FileSystemEventArgs e)
