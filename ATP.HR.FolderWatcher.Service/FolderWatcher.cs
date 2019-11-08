@@ -9,6 +9,9 @@ namespace ATP.HR.FolderWatcher.Service
 {
     public class FolderWatcher
     {
+        #region Private_Fields
+        private readonly int jobSecondsElapsed = 10;
+
         private FileSystemWatcher watcher;
 
         private List<string> filesToProcessList;
@@ -31,10 +34,53 @@ namespace ATP.HR.FolderWatcher.Service
 
         private DatabaseManager databaseManager;
 
+        private string fileToProcessedName = string.Empty;
+        #endregion
+
+        #region Private_Events
+        private event Action<bool> Step1Success;
+
+        private event Action<bool> Step2Success;
+
+        private event Action<bool> Step3Success;
+        #endregion
+
         public FolderWatcher(string receivedDataPath, string processedDataPath)
         {
             this.receivedDataPath = receivedDataPath;
             this.processedDataPath = processedDataPath;
+
+            this.Step1Success += (result) =>
+            {
+                if (result)
+                {
+                    this.RunSecondStep();
+                }
+            };
+
+            this.Step2Success += (result) =>
+            {
+                if (result)
+                {
+                    this.RunThirdStep();
+                }
+            };
+            this.Step3Success += (result) =>
+            {
+                if (result)
+                {
+                    Console.WriteLine("Finished Succesfully. Steps were not failed.");
+
+                    File.Move(Path.Combine(processDirectoryInfo.FullName, this.fileToProcessedName),
+                        Path.Combine(processDirectoryInfo.FullName, FileSystemManager.folderIgnoredName01, this.fileToProcessedName));
+
+                    FileSystemManager.ClearFolderFromUselessFiles(processDirectoryInfo, filesToNotDeleteNamesList.ToArray());
+                }
+                else
+                {
+                    Console.WriteLine("Failed!");
+                }
+            };
         }
 
         private void Watch(string receivedDataPath, string processedDataPath)
@@ -76,193 +122,34 @@ namespace ATP.HR.FolderWatcher.Service
 
                 bool isMoved = false;
                 bool isExtracted = false;
-                bool isDone = false;
                 string dateTimeNow;
-                bool isStep1Failure = true;
-                bool isStep2Failure = true;
-                bool isStep3Failure = true;
-                bool isJobRunning = true;
-                int jobSecondsElapsed = 7;
 
                 dateTimeNow = DateTime.Now.ToString("MM.dd.yyyy_HH-mm-ss.fff");
 
-                bool spinUntil = SpinWait.SpinUntil(() =>
+                bool spinUntilMove = SpinWait.SpinUntil(() =>
+                    MoveReceivedFiles(dateTimeNow, ref isMoved), TimeSpan.FromSeconds(5));
+
+                this.fileToProcessedName = string.Concat(fileToProcessedName01.Left(fileToProcessedName01.Length - 4), "_", dateTimeNow, ".zip");
+
+                if (spinUntilMove == true && isMoved == true)
                 {
-                    try
-                    {
-                        FileInfo[] receiveCurrentFilesInfo = watchDirectoryInfo.GetFiles();
-                        string receiveFilePath;
-                        string processFilePath;
+                    Console.WriteLine("File was Moved!");
 
-                        Thread.Sleep(5); // 5ms
+                    bool spinUntilExtract = SpinWait.SpinUntil(() =>
+                        ExtractProcessFiles(this.fileToProcessedName, ref isExtracted), TimeSpan.FromSeconds(5));
 
-                        foreach (FileInfo fileInfo in receiveCurrentFilesInfo)
-                        {
-                            if (filesToMoveNamesList.ToArray().Contains(fileInfo.Name))
-                            {
-                                receiveFilePath = fileInfo.FullName;
-                                processFilePath = Path.Combine(processDirectoryInfo.FullName,
-                                    string.Concat(Path.GetFileNameWithoutExtension(receiveFilePath),
-                                        "_",
-                                        dateTimeNow,
-                                        Path.GetExtension(receiveFilePath)));
-
-                                if (File.Exists(receiveFilePath))
-                                {
-                                    File.Move(receiveFilePath, processFilePath);
-
-                                    filesToProcessList.Add(Path.GetFileName(processFilePath));
-
-                                    isMoved = true;
-                                }
-                            }
-                        }
-
-                        isDone = true;
-                    }
-                    catch (Exception rp)
-                    {
-                        Console.WriteLine(rp);
-                    }
-
-                    return isDone;
-                }, TimeSpan.FromSeconds(5));
-
-                Console.WriteLine((spinUntil == true && isMoved == true) ? "File was Moved!" : "Failed and canceled.");
-
-                bool isDone2 = false;
-                string newFileToProcessedName01 = string.Concat(fileToProcessedName01.Left(fileToProcessedName01.Length - 4), "_", dateTimeNow, ".zip");
-
-                bool spinUntil2 = SpinWait.SpinUntil(() =>
+                    Console.WriteLine((spinUntilExtract == true && isExtracted == true) ? "File was Extracted!" : "Failed and canceled.2");
+                }
+                else
                 {
-                    try
-                    {
-                        if (isMoved)
-                        {
-                            FileSystemManager.ClearFolderFromUselessFiles(processDirectoryInfo, filesToProcessList.Concat(filesToNotDeleteNamesList).ToArray());
-
-                            FileInfo[] processCurrentFilesInfo = processDirectoryInfo.GetFiles();
-
-                            foreach (FileInfo fileInfo in processCurrentFilesInfo)
-                            {
-                                if (fileInfo.Extension == ".zip" && filesToProcessList.ToArray().Contains(fileInfo.Name))
-                                {
-                                    if (fileInfo.Name == newFileToProcessedName01)
-                                    {
-                                        List<string> currentZipFilesList = ZipFile.OpenRead(fileInfo.FullName)
-                                            .Entries
-                                            .Select(cz => cz.FullName)
-                                            .ToList();
-
-                                        IEnumerable<string> missingFilesList;
-
-                                        missingFilesList = FileSystemManager.filesToProcessedList.Except(currentZipFilesList);
-
-                                        if (missingFilesList.Count() == 0 && currentZipFilesList.Count() == FileSystemManager.filesToProcessedList.Count())
-                                        {
-                                            ZipFile.ExtractToDirectory(fileInfo.FullName, fileInfo.DirectoryName);
-
-                                            isExtracted = true;
-                                        }
-                                        else
-                                        {
-                                            Console.WriteLine("Missing files:");
-                                            foreach (string value in missingFilesList)
-                                            {
-                                                Console.WriteLine(value);
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                            FileSystemManager.ClearFolderFromUselessFiles(watchDirectoryInfo, filesToMoveNamesList.ToArray());
-                        }
-
-                        isDone2 = true;
-                    }
-                    catch
-                    {
-                    }
-
-                    return isDone2;
-                }, TimeSpan.FromSeconds(5));
-
-                Console.WriteLine((spinUntil2 == true && isExtracted == true) ? "File was Extracted!" : "Failed and canceled.2");
+                    Console.WriteLine("Failed and canceled while moving some received files.");
+                }
 
                 if (isExtracted)
                 {
                     databaseManager = new DatabaseManager();
 
-                    databaseManager.RunHrJob(databaseManager.jobStep1Name);
-
-                    int step1SecondsElapsed = 15;
-                    int step1PackageCount = 2;
-
-                    isStep1Failure = databaseManager.IsFailureProcessStatus(statusTypesList, databaseManager.processStep1Name, DateTime.Now, step1SecondsElapsed, step1PackageCount);
-
-                    isJobRunning = databaseManager.IsJobRunning(databaseManager.jobName, jobSecondsElapsed);
-
-                    if (isStep1Failure)
-                    {
-                        Console.WriteLine("Step1Failure");
-                    }
-                    else if (isJobRunning)
-                    {
-                        Console.WriteLine("Job is running too long.");
-                    }
-                    else
-                    {
-                        Console.WriteLine("Step1Succ");
-
-                        databaseManager.RunHrJob(databaseManager.jobStep2Name);
-                        isJobRunning = true;
-
-                        int step2SecondsElapsed = 30;
-                        int step2PackageCount = 16;
-
-                        isStep2Failure = databaseManager.IsFailureProcessStatus(statusTypesList, databaseManager.processStep2Name, DateTime.Now, step2SecondsElapsed, step2PackageCount);
-
-                        isJobRunning = databaseManager.IsJobRunning(databaseManager.jobName, jobSecondsElapsed);
-
-                        if (isStep2Failure)
-                        {
-                            Console.WriteLine("Step2Failure");
-                        }
-                        else if (isJobRunning)
-                        {
-                            Console.WriteLine("Job is running too long.");
-                        }
-                        else
-                        {
-                            Console.WriteLine("Step2Succ");
-
-                            databaseManager.RunHrJob(databaseManager.jobStep3Name);
-                            isJobRunning = true;
-
-                            int step3SecondsElapsed = 30;
-                            int step3PackageCount = 2;
-
-                            isStep3Failure = databaseManager.IsFailureProcessStatus(statusTypesList, databaseManager.processStep3Name, DateTime.Now, step3SecondsElapsed, step3PackageCount);
-
-                            if (isStep3Failure)
-                            {
-                                Console.WriteLine("Step3Failure");
-                            }
-                            else
-                            {
-                                Console.WriteLine("Step3Succ");
-                            }
-                        }
-                    }
-                }
-
-                if (!isStep1Failure && !isStep2Failure && !isStep3Failure)
-                {
-                    Console.WriteLine("Finished Succesfully. Steps were not failed.");
-
-                    File.Move(Path.Combine(processDirectoryInfo.FullName, newFileToProcessedName01), Path.Combine(processDirectoryInfo.FullName, FileSystemManager.folderIgnoredName01, newFileToProcessedName01));
-
-                    FileSystemManager.ClearFolderFromUselessFiles(processDirectoryInfo, filesToNotDeleteNamesList.ToArray());
+                    this.RunFirstStep();
                 }
             }
             catch (Exception ex)
@@ -275,13 +162,6 @@ namespace ATP.HR.FolderWatcher.Service
             }
         }
 
-        private void Dispose()
-        {
-            // avoiding resource leak
-            this.watcher.Changed -= OnChanged;
-            this.watcher.Dispose();
-        }
-
         public void Start()
         {
             this.Watch(this.receivedDataPath, this.processedDataPath);
@@ -292,6 +172,209 @@ namespace ATP.HR.FolderWatcher.Service
         {
             watcher.EnableRaisingEvents = false;
             this.Dispose();
+        }
+
+        private void Dispose()
+        {
+            // avoiding resource leak
+            this.watcher.Changed -= OnChanged;
+            this.watcher.Dispose();
+        }
+
+        private bool MoveReceivedFiles(string strDateTimeNow, ref bool isMoved)
+        {
+            bool isDone = false;
+
+            try
+            {
+                FileInfo[] receiveCurrentFilesInfo = watchDirectoryInfo.GetFiles();
+                string receiveFilePath;
+                string processFilePath;
+
+                Thread.Sleep(5); // 5ms
+
+                foreach (FileInfo fileInfo in receiveCurrentFilesInfo)
+                {
+                    if (filesToMoveNamesList.ToArray().Contains(fileInfo.Name))
+                    {
+                        receiveFilePath = fileInfo.FullName;
+                        processFilePath = Path.Combine(processDirectoryInfo.FullName,
+                            string.Concat(Path.GetFileNameWithoutExtension(receiveFilePath),
+                                "_",
+                                strDateTimeNow,
+                                Path.GetExtension(receiveFilePath)));
+
+                        if (File.Exists(receiveFilePath))
+                        {
+                            File.Move(receiveFilePath, processFilePath);
+
+                            filesToProcessList.Add(Path.GetFileName(processFilePath));
+
+                            isMoved = true;
+                        }
+                    }
+                }
+
+                isDone = true;
+            }
+            catch (Exception rp)
+            {
+                Console.WriteLine(rp);
+            }
+
+            return isDone;
+        }
+
+        private bool ExtractProcessFiles(string newFileToProcessedName01, ref bool isExtracted)
+        {
+            bool isDone = false;
+
+            try
+            {
+                FileSystemManager.ClearFolderFromUselessFiles(processDirectoryInfo, filesToProcessList.Concat(filesToNotDeleteNamesList).ToArray());
+
+                FileInfo[] processCurrentFilesInfo = processDirectoryInfo.GetFiles();
+
+                foreach (FileInfo fileInfo in processCurrentFilesInfo)
+                {
+                    if (fileInfo.Extension == ".zip" && filesToProcessList.ToArray().Contains(fileInfo.Name))
+                    {
+                        if (fileInfo.Name == newFileToProcessedName01)
+                        {
+                            List<string> currentZipFilesList = ZipFile.OpenRead(fileInfo.FullName)
+                                .Entries
+                                .Select(cz => cz.FullName)
+                                .ToList();
+
+                            IEnumerable<string> missingFilesList;
+
+                            missingFilesList = FileSystemManager.filesToProcessedList.Except(currentZipFilesList);
+
+                            if (missingFilesList.Count() == 0 && currentZipFilesList.Count() == FileSystemManager.filesToProcessedList.Count())
+                            {
+                                ZipFile.ExtractToDirectory(fileInfo.FullName, fileInfo.DirectoryName);
+
+                                isExtracted = true;
+                            }
+                            else
+                            {
+                                Console.WriteLine("Missing files in .zip file or there are some extra files:");
+                                foreach (string value in missingFilesList)
+                                {
+                                    Console.WriteLine(value);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                FileSystemManager.ClearFolderFromUselessFiles(watchDirectoryInfo, filesToMoveNamesList.ToArray());
+
+                isDone = true;
+            }
+            catch
+            {
+            }
+
+            return isDone;
+        }
+
+        private void RunFirstStep()
+        {
+            bool result = true;
+            bool isFailure = true;
+            bool isJobRunning = true;
+
+            databaseManager.RunHrJob(databaseManager.jobStep1Name);
+
+            int step1SecondsElapsed = 15;
+            int step1PackageCount = 2;
+
+            isFailure = databaseManager.IsFailureProcessStatus(statusTypesList, databaseManager.processStep1Name, DateTime.Now, step1SecondsElapsed, step1PackageCount);
+
+            if (isFailure)
+            {
+                Console.WriteLine("Step1 failed.");
+                result = false;
+            }
+            else
+            {
+                isJobRunning = databaseManager.IsJobRunning(databaseManager.jobName, this.jobSecondsElapsed);
+
+                if (isJobRunning)
+                {
+                    Console.WriteLine("Job on Step1 is finishing too long.");
+                    result = false;
+                }
+                else
+                {
+                    Console.WriteLine("Step1 is finished successfully.");
+                }
+            }
+
+            this.Step1Success(result);
+        }
+
+        private void RunSecondStep()
+        {
+            bool result = true;
+            bool isFailure = true;
+            bool isJobRunning = true;
+
+            databaseManager.RunHrJob(databaseManager.jobStep2Name);
+
+            int step2SecondsElapsed = 40;
+            int step2PackageCount = 16;
+
+            isFailure = databaseManager.IsFailureProcessStatus(statusTypesList, databaseManager.processStep2Name, DateTime.Now, step2SecondsElapsed, step2PackageCount);
+
+            if (isFailure)
+            {
+                Console.WriteLine("Step2 failed.");
+                result = false;
+            }
+            else
+            {
+                isJobRunning = databaseManager.IsJobRunning(databaseManager.jobName, this.jobSecondsElapsed);
+
+                if (isJobRunning)
+                {
+                    Console.WriteLine("Job on Step2 is finishing too long.");
+                    result = false;
+                }
+                else
+                {
+                    Console.WriteLine("Step2 is finished successfully.");
+                }
+            }
+
+            this.Step2Success(result);
+        }
+
+        private void RunThirdStep()
+        {
+            bool result = true;
+            bool isFailure = true;
+
+            databaseManager.RunHrJob(databaseManager.jobStep3Name);
+
+            int step3SecondsElapsed = 30;
+            int step3PackageCount = 2;
+
+            isFailure = databaseManager.IsFailureProcessStatus(statusTypesList, databaseManager.processStep3Name, DateTime.Now, step3SecondsElapsed, step3PackageCount);
+
+            if (isFailure)
+            {
+                Console.WriteLine("Step3 failed.");
+                result = false;
+            }
+            else
+            {
+                Console.WriteLine("Step3 is finished successfully.");
+            }
+
+
+            this.Step3Success(result);
         }
     }
 }

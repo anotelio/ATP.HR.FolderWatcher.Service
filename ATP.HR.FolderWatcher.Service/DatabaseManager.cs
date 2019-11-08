@@ -48,7 +48,7 @@ namespace ATP.HR.FolderWatcher.Service
 
             using (IDbConnection connection = new System.Data.SqlClient.SqlConnection(AppConfig.CoreDbProcessesConnection))
             {
-                var output = connection.Query<CoreProcessStatusDto>(processStatusProcedureName, parameters, commandType: CommandType.StoredProcedure).ToList();
+                var output = connection. Query<CoreProcessStatusDto>(processStatusProcedureName, parameters, commandType: CommandType.StoredProcedure).ToList();
 
                 return output;
             }
