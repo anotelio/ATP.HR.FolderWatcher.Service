@@ -3,11 +3,11 @@ using System.Collections.Generic;
 using System.Data;
 using System.Diagnostics;
 using System.Linq;
-using System.Threading;
 using Dapper;
 
 namespace ATP.HR.FolderWatcher.Service
 {
+    #region Enums
     public enum StatusTypes : int
     {
         Bootstrap = 1,
@@ -17,9 +17,11 @@ namespace ATP.HR.FolderWatcher.Service
         ExecutionNotPermitted = 5,
         FailedDueToClusterFailover = 6
     };
+    #endregion
 
     public class DatabaseManager
     {
+        #region Local variables
         private string processStatusProcedureName = "[Process].[etl_hr_files_import_reporting_process_step_check]";
         private string processStatusProcedureParamName01 = "process_name";
         private string processStatusProcedureParamName02 = "run_date";
@@ -39,6 +41,7 @@ namespace ATP.HR.FolderWatcher.Service
         private string jobStatusProcedureName = "[run].[etl_hr_files_import_reporting_job_status_get]";
         private string jobStatusProcedureParamName01 = "job_step_name";
         private string jobStatusProcedureParamOutputName01 = "isJobRunning";
+        #endregion
 
         public List<CoreProcessStatusDto> GetProcessStatusIds(string ProcessName, DateTime dateTime)
         {

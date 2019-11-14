@@ -50,6 +50,11 @@ namespace ATP.HR.FolderWatcher.Service
             this.receivedDataPath = receivedDataPath;
             this.processedDataPath = processedDataPath;
 
+            StepsFlow();
+        }
+
+        private void StepsFlow()
+        {
             this.Step1Success += (result) =>
             {
                 if (result)
@@ -65,20 +70,25 @@ namespace ATP.HR.FolderWatcher.Service
                     this.RunThirdStep();
                 }
             };
+
             this.Step3Success += (result) =>
             {
+                bool isSaved = false;
+
                 if (result)
                 {
-                    Console.WriteLine("Finished Succesfully. Steps were not failed.");
+                    Console.WriteLine("Finished successfully. Steps were not failed.");
 
-                    File.Move(Path.Combine(processDirectoryInfo.FullName, this.fileToProcessedName),
-                        Path.Combine(processDirectoryInfo.FullName, FileSystemManager.folderIgnoredName01, this.fileToProcessedName));
+                    bool spinUntilSave = SpinWait.SpinUntil(() =>
+                        SavedProcessedFiles(ref isSaved), TimeSpan.FromSeconds(5));
+
+                    Console.WriteLine((spinUntilSave == true && isSaved == true) ? "File was Moved and Saved to archive folder!" : "Failed and canceled while saving to archive folder");
 
                     FileSystemManager.ClearFolderFromUselessFiles(processDirectoryInfo, filesToNotDeleteNamesList.ToArray());
                 }
                 else
                 {
-                    Console.WriteLine("Failed!");
+                    Console.WriteLine("Steps Failed!");
                 }
             };
         }
@@ -138,7 +148,7 @@ namespace ATP.HR.FolderWatcher.Service
                     bool spinUntilExtract = SpinWait.SpinUntil(() =>
                         ExtractProcessFiles(this.fileToProcessedName, ref isExtracted), TimeSpan.FromSeconds(5));
 
-                    Console.WriteLine((spinUntilExtract == true && isExtracted == true) ? "File was Extracted!" : "Failed and canceled.2");
+                    Console.WriteLine((spinUntilExtract == true && isExtracted == true) ? "File was Extracted!" : "Failed and canceled while extracting file.");
                 }
                 else
                 {
@@ -285,30 +295,43 @@ namespace ATP.HR.FolderWatcher.Service
             bool isFailure = true;
             bool isJobRunning = true;
 
-            databaseManager.RunHrJob(databaseManager.jobStep1Name);
+            isJobRunning = databaseManager.IsJobRunning(databaseManager.jobName, this.jobSecondsElapsed);
 
-            int step1SecondsElapsed = 15;
-            int step1PackageCount = 2;
-
-            isFailure = databaseManager.IsFailureProcessStatus(statusTypesList, databaseManager.processStep1Name, DateTime.Now, step1SecondsElapsed, step1PackageCount);
-
-            if (isFailure)
+            if (isJobRunning)
             {
-                Console.WriteLine("Step1 failed.");
+                Console.WriteLine("Pre-execution job check on Step1 failed. Job is running or stuck.");
                 result = false;
             }
             else
             {
-                isJobRunning = databaseManager.IsJobRunning(databaseManager.jobName, this.jobSecondsElapsed);
 
-                if (isJobRunning)
+                databaseManager.RunHrJob(databaseManager.jobStep1Name);
+
+                int step1SecondsElapsed = 30;
+                int step1PackageCount = 2;
+
+                isFailure = databaseManager.IsFailureProcessStatus(statusTypesList, databaseManager.processStep1Name, DateTime.Now, step1SecondsElapsed, step1PackageCount);
+
+                if (isFailure)
                 {
-                    Console.WriteLine("Job on Step1 is finishing too long.");
+                    Console.WriteLine("Step1 failed.");
                     result = false;
                 }
                 else
                 {
-                    Console.WriteLine("Step1 is finished successfully.");
+                    Thread.Sleep(1000);
+
+                    isJobRunning = databaseManager.IsJobRunning(databaseManager.jobName, this.jobSecondsElapsed);
+
+                    if (isJobRunning)
+                    {
+                        Console.WriteLine("Job on Step1 is finishing too long.");
+                        result = false;
+                    }
+                    else
+                    {
+                        Console.WriteLine("Step1 is finished successfully.");
+                    }
                 }
             }
 
@@ -323,7 +346,7 @@ namespace ATP.HR.FolderWatcher.Service
 
             databaseManager.RunHrJob(databaseManager.jobStep2Name);
 
-            int step2SecondsElapsed = 40;
+            int step2SecondsElapsed = 60 * 2;
             int step2PackageCount = 16;
 
             isFailure = databaseManager.IsFailureProcessStatus(statusTypesList, databaseManager.processStep2Name, DateTime.Now, step2SecondsElapsed, step2PackageCount);
@@ -335,6 +358,8 @@ namespace ATP.HR.FolderWatcher.Service
             }
             else
             {
+                Thread.Sleep(1000);
+
                 isJobRunning = databaseManager.IsJobRunning(databaseManager.jobName, this.jobSecondsElapsed);
 
                 if (isJobRunning)
@@ -355,10 +380,11 @@ namespace ATP.HR.FolderWatcher.Service
         {
             bool result = true;
             bool isFailure = true;
+            bool isJobRunning = true;
 
             databaseManager.RunHrJob(databaseManager.jobStep3Name);
 
-            int step3SecondsElapsed = 30;
+            int step3SecondsElapsed = 60 * 5;
             int step3PackageCount = 2;
 
             isFailure = databaseManager.IsFailureProcessStatus(statusTypesList, databaseManager.processStep3Name, DateTime.Now, step3SecondsElapsed, step3PackageCount);
@@ -373,8 +399,40 @@ namespace ATP.HR.FolderWatcher.Service
                 Console.WriteLine("Step3 is finished successfully.");
             }
 
+            isJobRunning = databaseManager.IsJobRunning(databaseManager.jobName, this.jobSecondsElapsed);
+
+            if (isJobRunning)
+            {
+                Console.WriteLine("Job on Step3 is finishing too long. Please check.");
+            }
 
             this.Step3Success(result);
+        }
+
+        private bool SavedProcessedFiles(ref bool isSaved)
+        {
+            bool isDone = false;
+            string sourceProcessedPathNew = Path.Combine(processDirectoryInfo.FullName, this.fileToProcessedName);
+
+            try
+            {
+
+                if (File.Exists(sourceProcessedPathNew))
+                {
+                    File.Move(sourceProcessedPathNew,
+                        Path.Combine(processDirectoryInfo.FullName, FileSystemManager.folderIgnoredName01, this.fileToProcessedName));
+
+                    isSaved = true;
+                }
+
+                isDone = true;
+            }
+            catch (Exception rp)
+            {
+                Console.WriteLine(rp);
+            }
+
+            return isDone;
         }
     }
 }
